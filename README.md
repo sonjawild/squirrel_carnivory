@@ -35,6 +35,30 @@ Code and data for analysing prevalence of carnivory on mammalian prey in Califor
 - time: time step in days
 - presence: standardized presence within study (consisting of number of days observed on observation days + number of fecal samples collected up to each time step)
 
+### ILVs: Individual-level variables for each individual (static)
+- id: identity of squirrel
+- sex: F for female, M for male
+- age: A for adult, P for juvenile
+- age_sex: age sex category with abbreviations as above
+- n_obs_positive: number of observations with vole hunting or consumption
+- n_microtus_positive: number of fecal samples positive for vole DNA
+- total_pos_voles: sum of n_obs_positive and n_microtus_positive
+- hum_reactivity: proportion of trapping events during which individual showed fear responses (chatter, call, struggle)
+- total_interactions: how many affiliative interactions individual was involved in
+- initiation_af: initiation rate of affiliative interactions
+- initiation_ag: initiation rate of agonistic interactions
+- win_rat: win rate of agonistic interactions
+- agon_PCA: score of PC1 resulting from initiation rate (agonistic) and win rate
+- n_vole_burrows: number of vole burrows detected within 15m of landmarks that the squirrel used (weighed by relative space use), divided by 10
+- n_trap_days: number of distinct days it was trapped
+- n_obs_days: number of distinct observation days present in the study area
+- n_feces: number of fecal samples collected
+- n_mammals_DNA: number of fecal samples with mammalian DNA present
+- n_vole_obs: same as n_obs_positive
+- total_carnivory: total number of evidence for carnivory (from positive fecal samples and observations of hunting/consuming)
+
 ## NBDA vole eating: R code for replicating all analyses
+
+
 
 
