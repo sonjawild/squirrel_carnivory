@@ -5,7 +5,7 @@
 
 # install devtools if not already
 if (!require("devtools")) install.packages("devtools")
-devtools::install_github("michaelchimento/STbayes")
+#devtools::install_github("michaelchimento/STbayes")
 library(brms)
 library(car)
 library(dplyr)
@@ -163,23 +163,22 @@ print(final_table)
 
 
 # and load diffusion data and individual covariates
-event_data <- read.csv("Input Data/event.data.csv")
 edge_list <- read.csv("Input Data/edge_list.csv", row.names = 1)
 ILV_data <- read.csv("Input Data/ILVs.csv", row.names = 1)
-ILV_tv <- read.csv("Input Data/ILV_tv.csv", row.names = 1)
+event_data_row <- read.csv("Input Data/rowwise_event.csv", row.names = 1)
 
 
-# 3) Modeling frequency of carnivory --------------------------------------
+# 3) Modeling mammal carnivory (binary) -----------------------------------
 
 
-# is the rate of carnivory predicted by individual covariates? we combine both molecular and obsrvational data for this analysis. We need to account for effort (number of fecal samples per individual, plus the number of formal observation days present in the study area)
-
-ILV_data$effort<- ILV_data$n_trap_days+ILV_data$n_days_obs+ILV_data$n_feces
+# is the rate of carnivory predicted by individual covariates? we combine both molecular and obsrvational data for this analysis.
 
 
 # 3.1) descriptive stats --------------------------------------------------
 
-# some descriptive stats:
+# some descriptive stats on age-sex classes that consumed mammals and/or voles, respectively:
+# we use the ILV_data frame since that contains a summary of the by event data frame
+
 
 summary_table <- ILV_data %>%
   group_by(age, sex) %>%
@@ -264,150 +263,126 @@ summary_table
 # 3 Juvenile female        7           3               6
 # 4 Juvenile male          3           3               3
 
-# 3.2) Run model with interaction ----------------------------------------------------------
 
-# assess VIFs
+# 3.2) Calculate VIFs -----------------------------------------------------
+
+event_data_row %>% count(opportunity_type, carnivory_pos)
+
+# opportunity_type carnivory_pos   n
+# 1              obs             0 430
+# 2              obs             1  47
+# 3   trap_no_sample             0 175
+# 4   trap_no_sample             1   6
+# 5 trap_with_sample             0  54
+# 6 trap_with_sample             1  24
+
+# since the different opportunities for vole detection have diffrent detection probabilities, we include them in our model as a covariate. 
+
 
 model_vif <- glm(
-  formula = total_carnivory ~ agon_PCA + hum_reactivity + n_vole_burrows + age + sex + offset(log(effort)),
-  data = ILV_data,
-  family = poisson()
+  formula = carnivory_pos ~ age + sex + hum_reactivity + agon_PCA + n_vole_burrows + 
+    opportunity_type,
+  data = event_data_row,
+  family = binomial(link = "logit")
 )
 
-vif(model_vif)
+car::vif(model_vif)
+# GVIF Df GVIF^(1/(2*Df))
+# age              1.403818  1        1.184828
+# sex              1.233214  1        1.110502
+# hum_reactivity   1.057848  1        1.028517
+# agon_PCA         1.555810  1        1.247321
+# n_vole_burrows   1.099067  1        1.048364
+# opportunity_type 1.011510  2        1.002865
 
-# vif(model_vif)
-# agon_PCA hum_reactivity n_vole_burrows            age            sex 
-# 1.448755       1.054466       1.088135       1.372134       1.177833
+# we run a main effects model only 
 
-
-# we first fit the full model including interactions
-model_carnivory_interaction <- brm(
-  formula = total_carnivory ~ agon_PCA * age + hum_reactivity*age + n_vole_burrows  + sex*age + offset(log(effort)),
-  data = ILV_data,
-  family = poisson(),
-  chains = 4,
-  cores = 4,
-  iter = 4000
-)
-
-#save(model_carnivory_interaction, file="output/model_carnivory_interaction.RDA")
-load("output/model_carnivory_interaction.RDA")
-
-
-summary(model_carnivory)
-
-# Family: poisson 
-# Links: mu = log 
-# Formula: total_carnivory ~ agon_PCA * age + hum_reactivity * age + n_vole_burrows + sex * age + offset(log(effort)) 
-# Data: ILV_data (Number of observations: 59) 
-# Draws: 4 chains, each with iter = 4000; warmup = 2000; thin = 1;
-# total post-warmup draws = 8000
-# 
-# Regression Coefficients:
-#   Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
-# Intercept              -2.06      0.22    -2.50    -1.64 1.00     6421     6205
-# agon_PCA                0.33      0.16     0.02     0.64 1.00     5989     4995
-# ageP                    0.13      0.39    -0.65     0.89 1.00     5529     5535
-# hum_reactivity         -1.24      0.75    -2.81     0.14 1.00     5877     5285
-# n_vole_burrows         -0.02      0.04    -0.11     0.07 1.00     7217     5477
-# sexM                   -0.04      0.30    -0.64     0.55 1.00     6493     5718
-# agon_PCA:ageP           0.19      0.28    -0.36     0.73 1.00     6744     5463
-# ageP:hum_reactivity     1.98      1.09    -0.11     4.13 1.00     5221     4807
-# ageP:sexM              -0.32      0.51    -1.34     0.67 1.00     5892     5501
-# 
-# Draws were sampled using sampling(NUTS). For each parameter, Bulk_ESS
-# and Tail_ESS are effective sample size measures, and Rhat is the potential
-# scale reduction factor on split chains (at convergence, Rhat = 1).
-
-# we can see that we do not find evidence for interactive effects, so we repeat the simpler model with just the main effects (after exporting a table with these results)
-
-
-tab <- as.data.frame(summary(model_carnivory)$fixed)
-tab$Parameter <- rownames(tab)
-tab <- tab %>%
-  rename(
-    Estimate = Estimate,
-    CI_low = 'l-95% CI',
-    CI_high = 'u-95% CI',
-    Rhat = Rhat
-  ) %>%
-  
-  # Relabel parameters
-  mutate(Parameter = case_match(Parameter,
-                                "Intercept" ~ "Baseline carnivory rate",
-                                "agon_PCA" ~ "Agonistic tendency (PCA)",
-                                "hum_reactivity" ~ "Reactivity to humans",
-                                "n_vole_burrows" ~ "Vole burrow prevalence",
-                                "ageP" ~ "Age (juvenile vs adult)",
-                                "sexM" ~ "Sex (male vs female)",
-                                "agon_PCA:ageP" ~ "Agonistic tendency × Age",
-                                "ageP:hum_reactivity" ~ "Reactivity to humans × Age",
-                                "ageP:sexM" ~ "Sex × Age"
-  )) %>%
-  
-  # Convert to rate ratios
-  mutate(
-    Estimate = exp(Estimate),
-    CI_low = exp(CI_low),
-    CI_high = exp(CI_high)
-  ) %>%
-  
-  # Round
-  mutate(across(c(Estimate, CI_low, CI_high, Rhat), ~round(.x, 3))) %>%
-  
-  select(Parameter, Estimate, CI_low, CI_high, Rhat)
-
-colnames(tab) <- c("Predictor", "Rate ratio", "Lower 95% CI", "Upper 95% CI", "R̂")
-
-ft <- flextable(tab) %>%
-  autofit()
-
-doc <- read_docx() %>%
-  body_add_flextable(ft)
-print(doc, target = "Table/model_table_carnivory_w_interactions.docx")
-
-
-
-# 3.3.1) Run model without interaction ------------------------------------------------------
-
-# Fit the main effects model
 model_carnivory <- brm(
-  formula = total_carnivory ~ agon_PCA + hum_reactivity + n_vole_burrows + age + sex + offset(log(effort)),
-  data = ILV_data,
-  family = poisson(),
+  carnivory_pos ~ age + sex + hum_reactivity + agon_PCA + n_vole_burrows + 
+    opportunity_type + (1 | id),
+  data = event_data_row,
+  family = bernoulli(link = "logit"),
   chains = 4,
   cores = 4,
-  iter = 4000
+  iter = 2000,
+  seed = 123
 )
 #save(model_carnivory, file="output/model_carnivory.RDA")
 load("output/model_carnivory.RDA")
 
+# and a interactive effects model with age
 
-summary(model_carnivory)
+model_carnivory_int <- brm(
+  carnivory_pos ~ age*sex + hum_reactivity*age + agon_PCA*age + n_vole_burrows + opportunity_type  + (1 | id),
+  data = event_data_row,
+  family = bernoulli(link = "logit"),
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  seed = 123
+)
 
-# Family: poisson 
-# Links: mu = log 
-# Formula: total_carnivory ~ agon_PCA + hum_reactivity + n_vole_burrows + age + sex + offset(log(effort)) 
-# Data: ILV_data (Number of observations: 59) 
-# Draws: 4 chains, each with iter = 4000; warmup = 2000; thin = 1;
-# total post-warmup draws = 8000
-# 
-# Regression Coefficients:
-#   Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
-# Intercept         -2.21      0.19    -2.60    -1.84 1.00     8549     6285
-# agon_PCA           0.39      0.14     0.13     0.66 1.00     6396     5744
-# hum_reactivity    -0.33      0.51    -1.36     0.63 1.00     8702     5853
-# n_vole_burrows    -0.00      0.04    -0.09     0.08 1.00     8856     5030
-# ageP               0.53      0.26     0.02     1.04 1.00     6733     5749
-# sexM              -0.12      0.24    -0.61     0.36 1.00     8062     6254
-# 
-# Draws were sampled using sampling(NUTS). For each parameter, Bulk_ESS
-# and Tail_ESS are effective sample size measures, and Rhat is the potential
-# scale reduction factor on split chains (at convergence, Rhat = 1).
+#save(model_carnivory_int, file="output/model_carnivory_int.RDA")
+load("output/model_carnivory_int.RDA")
 
+# we compare the two 
+loo_compare(loo(model_carnivory), loo(model_carnivory_int))
+# elpd_diff se_diff
+# model_carnivory      0.0       0.0   
+# model_carnivory_int -0.6       1.1 
+
+# adding the age interactions does not improve the model, so we are going with the simpler main effects model
+
+# we create tables for both
+
+# first interaction model
+tab_int <- as.data.frame(summary(model_carnivory_int)$fixed)
+tab_int$Parameter <- rownames(tab_int)
+
+tab_int <- tab_int %>%
+  rename(
+    Estimate = Estimate,
+    CI_low = 'l-95% CI',
+    CI_high = 'u-95% CI',
+    Rhat = Rhat
+  ) %>%
+  mutate(Parameter = case_match(Parameter,
+                                "Intercept" ~ "Baseline carnivory (adult reference)",
+                                "agon_PCA" ~ "Agonistic tendency (PCA), adults",
+                                "hum_reactivity" ~ "Reactivity to humans, adults",
+                                "n_vole_burrows" ~ "Vole burrow prevalence",
+                                "ageP" ~ "Age (juvenile vs adult)",
+                                "sexM" ~ "Sex (male vs female), adults",
+                                "opportunity_typetrap_no_sample" ~ "Evidence (trap no sample vs observation)",
+                                "opportunity_typetrap_with_sample" ~ "Evidence (trap with sample vs observation)",
+                                "ageP:sexM" ~ "Sex × Age",
+                                "ageP:hum_reactivity" ~ "Reactivity to humans × Age",
+                                "ageP:agon_PCA" ~ "Agonistic tendency × Age"
+  )) %>%
+  mutate(
+    Estimate = exp(Estimate),
+    CI_low = exp(CI_low),
+    CI_high = exp(CI_high)
+  ) %>%
+  mutate(across(c(Estimate, CI_low, CI_high, Rhat), ~round(.x, 3))) %>%
+  select(Parameter, Estimate, CI_low, CI_high, Rhat)
+
+
+colnames(tab_int) <- c("Predictor", "Odds ratio", "Lower 95% CI", "Upper 95% CI", "R̂")
+
+rownames(tab_int) <- NULL
+
+ft <- flextable(tab_int) %>%
+  autofit()
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+print(doc, target = "output/model_table_carnivory_w_interactions.docx")
+
+## main effect model
 tab <- as.data.frame(summary(model_carnivory)$fixed)
 tab$Parameter <- rownames(tab)
+
 tab <- tab %>%
   rename(
     Estimate = Estimate,
@@ -415,57 +390,66 @@ tab <- tab %>%
     CI_high = 'u-95% CI',
     Rhat = Rhat
   ) %>%
-  
   mutate(Parameter = case_match(Parameter,
-                                "Intercept" ~ "Baseline carnivory rate",
-                                "agon_PCA" ~ "Agonistic tendency (PCA)",
-                                "hum_reactivity" ~ "Reactivity to humans",
+                                "Intercept" ~ "Baseline carnivory (adult reference)",
+                                "agon_PCA" ~ "Agonistic tendency (PCA), adults",
+                                "hum_reactivity" ~ "Reactivity to humans, adults",
                                 "n_vole_burrows" ~ "Vole burrow prevalence",
                                 "ageP" ~ "Age (juvenile vs adult)",
-                                "sexM" ~ "Sex (male vs female)"
+                                "sexM" ~ "Sex (male vs female), adults",
+                                "opportunity_typetrap_no_sample" ~ "Evidence (trap no sample vs observation)",
+                                "opportunity_typetrap_with_sample" ~ "Evidence (trap with sample vs observation)"
   )) %>%
-  
   mutate(
     Estimate = exp(Estimate),
     CI_low = exp(CI_low),
     CI_high = exp(CI_high)
   ) %>%
-  
   mutate(across(c(Estimate, CI_low, CI_high, Rhat), ~round(.x, 3))) %>%
-  
   select(Parameter, Estimate, CI_low, CI_high, Rhat)
 
-colnames(tab) <- c("Predictor", "Rate ratio", "Lower 95% CI", "Upper 95% CI", "R̂")
+
+colnames(tab) <- c("Predictor", "Odds ratio", "Lower 95% CI", "Upper 95% CI", "R̂")
+
+rownames(tab) <- NULL
 
 ft <- flextable(tab) %>%
   autofit()
 
 doc <- read_docx() %>%
   body_add_flextable(ft)
-print(doc, target = "Table/model_table_carnivory.docx")
+print(doc, target = "output/model_table_carnivory.docx")
 
 
-# 3.3.2) Extract contrasts --------------------------------------------------
+# 3.3) Extract contrasts --------------------------------------------------
 
+# get contrasts for opportunity types 
 
-# extract the emmeans for the main effect model
-
-
-emmeans(
+emm_type <- emmeans(
   model_carnivory,
-  ~ age,
-  type = "response",
-  offset = log(1)   # per unit effort
+  ~ opportunity_type,
+  type = "response"
 )
-
-
-# age  rate lower.HPD upper.HPD
-# A   0.095     0.064     0.131
-# P   0.161     0.109     0.220
+emm_type
+# opportunity_type response lower.HPD upper.HPD
+# obs                0.0662   0.03236    0.1005
+# trap_no_sample     0.0189   0.00379    0.0399
+# trap_with_sample   0.2615   0.14191    0.3970
 # 
-# Results are averaged over the levels of: sex 
+# Results are averaged over the levels of: age, sex 
 # Point estimate displayed: median 
-# Results are back-transformed from the log scale 
+# Results are back-transformed from the logit scale 
+# HPD interval probability: 0.95 
+
+contrast(emm_type, "pairwise")
+# contrast                          odds.ratio lower.HPD upper.HPD
+# obs / trap_no_sample                  3.6526    1.2692     8.560
+# obs / trap_with_sample                0.1988    0.0953     0.362
+# trap_no_sample / trap_with_sample     0.0541    0.0125     0.124
+# 
+# Results are averaged over the levels of: age, sex 
+# Point estimate displayed: median 
+# Results are back-transformed from the log odds ratio scale 
 # HPD interval probability: 0.95 
 
 # predict carnivory rates for 25th and 75th percentil of competitive ability
@@ -473,24 +457,53 @@ emmeans(
 
 q <- quantile(ILV_data$agon_PCA, c(0.25, 0.75))
 
-emmeans(
+emm <- emmeans(
   model_carnivory,
   ~ agon_PCA,
-  at = list(
-    agon_PCA = q,
-    effort = 1
-  ),
+  at = list(agon_PCA = q, opportunity_type = "obs"),
   type = "response"
 )
+emm
 
-# agon_PCA   rate lower.HPD upper.HPD
-# -0.952 0.0852    0.0515     0.123
-# 0.616 0.1572    0.1210     0.195
+# agon_PCA response lower.HPD upper.HPD
+# -0.952   0.0305   0.00936    0.0592
+# 0.616   0.0923   0.04832    0.1429
 # 
 # Results are averaged over the levels of: age, sex 
 # Point estimate displayed: median 
-# Results are back-transformed from the log scale 
-# HPD interval probability: 0.95
+# Results are back-transformed from the logit scale 
+# HPD interval probability: 0.95 
+
+contrast(emm, "revpairwise", type = "response")
+
+# contrast                                                 odds.ratio lower.HPD upper.HPD
+# agon_PCA0.615777272631032 / (agon_PCA-0.951729812201686)       3.22      1.11      6.63
+# 
+# Results are averaged over the levels of: age, sex 
+# Point estimate displayed: median 
+# Results are back-transformed from the log odds ratio scale 
+# HPD interval probability: 0.95 
+
+# Individuals at the 75th percentile of agonistic tendency have 3.22 x higher odds of detected carnivory than those at the 25th percentile
+
+
+
+# 3.4) Model performance and checks ---------------------------------------
+
+pp_check(model_carnivory)
+# looks like a great fit
+
+plot(model_carnivory)
+# check for stationarity and mixing (also looks good)
+
+r2_bayes(model_carnivory)
+# # Bayesian R2 with Compatibility Interval
+# 
+# Conditional R2: 0.178 (95% CI [0.111, 0.246])
+# Marginal R2: 0.100 (95% CI [0.037, 0.176])
+
+# look at the output visually
+plot(conditional_effects(model_carnivory))
 
 
 # 4) NBDA - diffusion of carnivory on voles -------------------------------
@@ -507,27 +520,152 @@ ILV_data_sub$age_sex <- as.factor(ILV_data_sub$age_sex)
 str(ILV_data_sub)
 # make sure categorical variables are factors
 
-# we don't need the spaital network, so we remove it from the edge-list
-edge_list <- edge_list[,c(1:4)]
+# from our row-wise event data, we extract the first events of vole carnivory
+
+event_data_row <- event_data_row %>%
+  mutate(date = as.Date(date)) %>%
+  arrange(id, date) %>%
+  group_by(id) %>%
+  mutate(
+    first_vole_evidence = vole_pos == 1 &
+      date == min(date[vole_pos == 1], na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Acquisition date per learner ---
+acquisition_dates <- event_data_row %>%
+  filter(first_vole_evidence) %>%
+  distinct(id, date)
+
+nrow(acquisition_dates)   # expect 29
+
+# time scale = calendar days since the start of the study
+study_start <- min(event_data_row$date, na.rm = TRUE)
+study_end   <- max(event_data_row$date, na.rm = TRUE)
+
+event_time_map <- tibble(date = seq(study_start, study_end, by = "day")) %>%
+  mutate(time = as.integer(date - study_start) + 1)
+
+nrow(event_time_map)      # 62
+t_end_int <- max(event_time_map$time)
+t_end_int                 # expect 62
+
+# Acquisition dates per learner, looked up against the full time scale ---
+acquisition_dates <- event_data_row %>%
+  filter(first_vole_evidence) %>%
+  distinct(id, date) %>%
+  left_join(event_time_map, by = "date")
+
+nrow(acquisition_dates)       # expect 29
+
+# Full event_data: all IDs, censored individuals filled in ---
+all_ids <- event_data_row %>% distinct(id)
+
+event_data_new <- all_ids %>%
+  left_join(acquisition_dates, by = "id") %>%
+  mutate(
+    time  = if_else(is.na(time), t_end_int + 1, time),
+    date  = as.character(date),
+    t_end = t_end_int,
+    trial = 1
+  ) %>%
+  select(id, time, date, t_end, trial)
+
+str(event_data_new)                          # 59 obs; time now spans up to t_end_int+1
+sum(event_data_new$time == t_end_int + 1)    # expect 30
+sum(event_data_new$time <= t_end_int)        # expect 29
+
+
+
+
+# --- discretization grid: only the distinct time values that actually appear in event_data ---
+event_times <- sort(unique(event_data_new$time))
+length(event_times)   # expect ~17
+
+# map each of these time labels back to its cutoff calendar date
+time_map <- tibble(time = event_times) %>%
+  mutate(
+    t_end = if_else(
+      time == t_end_int + 1,
+      study_end,                        # censoring step -> cutoff = last observed day
+      study_start + (time - 1)          # real elapsed-day time labels -> corresponding calendar date
+    )
+  )
+
+nrow(time_map)                                 # expect 17
+anyNA(time_map$t_end)                          # FALSE
+n_distinct(time_map$time) == nrow(time_map)    # TRUE
+
+# --- id x time scaffold, now only at real event-boundary times ---
+ids <- event_data_row %>% distinct(id)
+
+ILV_tv_new <- time_map %>%
+  tidyr::crossing(ids) %>%
+  arrange(time, id)
+
+nrow(ILV_tv_new)   # expect length(event_times) * 59, ~1003
+
+# --- cumulative counts per opportunity type ---
+count_type <- function(id_val, t_end_val, type_val) {
+  sum(event_data_row$id == id_val &
+        event_data_row$date <= t_end_val &
+        event_data_row$opportunity_type == type_val)
+}
+
+ILV_tv_new <- ILV_tv_new %>%
+  rowwise() %>%
+  mutate(
+    obs_days_cum            = count_type(id, t_end, "obs"),
+    trap_no_sample_days_cum = count_type(id, t_end, "trap_no_sample"),
+    trap_sample_days_cum    = count_type(id, t_end, "trap_with_sample")
+  ) %>%
+  ungroup()
+
+# --- weighted composite ---
+w_obs              <- 1
+w_trap_no_sample   <- exp(fixef(model_carnivory)["opportunity_typetrap_no_sample", "Estimate"])
+w_trap_with_sample <- exp(fixef(model_carnivory)["opportunity_typetrap_with_sample", "Estimate"])
+
+ILV_tv_new <- ILV_tv_new %>%
+  mutate(effective_effort = w_obs * obs_days_cum +
+           w_trap_no_sample * trap_no_sample_days_cum +
+           w_trap_with_sample * trap_sample_days_cum)
+
+ILV_tv_new$effective_effort <- scale(ILV_tv_new$effective_effort)
+
+ILV_tv_weighted <- ILV_tv_new %>%
+  transmute(trial = 1, id = id, time = time, effective_effort = effective_effort)
+
+str(ILV_tv_weighted)   # expect 1003 obs of 4 variables
+hist(ILV_tv_weighted$effective_effort)
+
+setdiff(unique(event_data_new$time), unique(ILV_tv_weighted$time))   # should be integer(0)
+setdiff(event_data_new$id, ILV_tv_weighted$id)                        # should be character(0)
+
 
 # 4.2) Create a data list ---------------------------------------------------
 
-data_list <- import_user_STb(event_data = event_data, 
+data_list <- import_user_STb(event_data = event_data_new, 
                              networks = edge_list ,
                              network_type = "undirected",
                              ILV_c = ILV_data_sub,
-                             ILV_tv = ILV_tv,
-                             ILVi = c("age_sex", "hum_reactivity", "agon_PCA", "n_vole_burrows", "presence"),
-                             ILVs = c("age_sex", "n_vole_burrows", "presence"))
+                             ILV_tv = ILV_tv_weighted,
+                             ILVi = c("age_sex", "hum_reactivity", "agon_PCA", "n_vole_burrows", "effective_effort"),
+                             ILVs = c("age_sex", "n_vole_burrows", "effective_effort"))
 
 # ILVi - variables influencing asocial learning rate
 # ILVs - variables influencing social learning rate
 
-# generate model list
-model_full_constant <- generate_STb_model(data_list, gq = T, est_acqTime = T, data_type = "discrete_time", intrinsic_rate = "constant")
+# the warning about the asymmetry of the network can be safely ignored. The supplied network only contains the upper half of the matrix and we let ST Bayes fill out the lower half (symmetric network)
+
+
 
 
 # 4.3) Run the models -------------------------------------------------------
+
+# generate model list
+model_full_constant <- generate_STb_model(data_list, gq = T, est_acqTime = T, data_type = "discrete_time", intrinsic_rate = "constant")
+
 
 # social model with constant baseline
 full_fit_constant <- fit_STb(data_list,
@@ -586,44 +724,50 @@ full_fit_asocial_weibull <- fit_STb(data_list,
 
 loo_output = STb_compare(full_fit_weibull, full_fit_constant, full_fit_asocial_weibull, full_fit_asocial_constant, method="loo-psis")
 
+
 loo_output$comparison
-#                           elpd_diff se_diff
-# full_fit_weibull            0.0       0.0  
-# full_fit_constant         -13.2       6.1  
-# full_fit_asocial_constant -49.1       7.6  
-# full_fit_asocial_weibull  -75.9      14.7
+# model elpd_diff se_diff p_worse diag_diff      diag_elpd
+# full_fit_weibull       0.0     0.0      NA                         
+# full_fit_constant      -0.3     0.8    0.63   N < 100 2 k_psis > 0.7
+# full_fit_asocial_constant     -29.8     6.3    1.00   N < 100 1 k_psis > 0.7
+# full_fit_asocial_weibull     -30.3     6.4    1.00   N < 100 4 k_psis > 0.7
+# 
+# Diagnostic flags present.
+# See ?`loo-glossary` (sections `diag_diff` and `diag_elpd`)
+# or https://mc-stan.org/loo/reference/loo-glossary.html.
 
-# weibull social model performs best, we therefore continue with that one
 
-# look at the output
-output_weibull <- STb_summary(full_fit_weibull, digits = 3)
-output_weibull
+# Weibull and constant are pretty much the same - so we go with the simpler model (cosntant) for reporting
 
+# when looking at the output of the weibull, we can also see that the confidence itnervals for the shape parameter include 0 (log_gamma), which further suggests that it is no different to a constant bseline
+
+output_constant <- STb_summary(full_fit_constant, digits = 3)
+output_constant
 # Parameter Median   MAD CI_Lower CI_Upper ess_bulk ess_tail  Rhat
-# 1         log_lambda_0_mean -2.395 0.415   -3.221   -1.580 4644.477 3262.061 1.001
-# 2          log_s_prime_mean -4.000 2.084   -8.329   -0.179 6709.280 2438.405 1.002
-# 10                 lambda_0  0.091 0.038    0.027    0.182 4644.541 3262.061 1.001
-# 12                        s  0.198 0.271    0.000    6.472 6525.793 2690.354 1.001
-# 4  beta_ILVi_hum_reactivity -0.399 0.583   -1.521    0.808 6032.841 2395.588 1.001
-# 5        beta_ILVi_agon_PCA  0.655 0.234    0.224    1.141 5445.967 3353.444 1.000
-# 6  beta_ILVi_n_vole_burrows  0.068 0.075   -0.087    0.210 7113.676 2691.165 1.001
-# 7        beta_ILVi_presence  0.048 0.033   -0.018    0.117 6545.883 3149.473 1.002
-# 8  beta_ILVs_n_vole_burrows -0.015 1.011   -1.924    1.959 8447.321 2843.971 1.001
-# 9        beta_ILVs_presence -0.015 1.030   -1.927    1.987 9874.911 2502.570 1.000
-# 14     beta_ILVi_age_sex[1] -0.268 0.467   -1.133    0.666 5481.189 3327.219 1.000
-# 17     beta_ILVs_age_sex[1]  0.006 0.969   -1.935    1.931 7569.997 2869.558 1.000
-# 15     beta_ILVi_age_sex[2]  0.600 0.478   -0.353    1.533 5389.573 3010.188 1.000
-# 18     beta_ILVs_age_sex[2]  0.021 1.012   -1.836    1.904 7484.423 2587.966 1.003
-# 16     beta_ILVi_age_sex[3]  0.065 0.561   -1.100    1.159 5578.222 3149.619 1.000
-# 19     beta_ILVs_age_sex[3]  0.013 1.038   -1.942    2.034 8800.070 2663.550 1.001
-# 13            percent_ST[1]  0.000 0.000    0.000    0.000       NA       NA    NA
-# 3                 log_gamma -0.757 0.182   -1.114   -0.406 6671.074 3367.527 1.001
-# 11                    gamma  0.469 0.086    0.305    0.634 6671.106 3367.527 1.001
+# 1           log_lambda_0_mean -5.139 0.470   -6.180   -4.341 1947.763 2434.302 1.000
+# 2            log_s_prime_mean -3.717 0.912   -5.845   -2.041 1672.833 1795.908 1.001
+# 9                    lambda_0  0.006 0.003    0.002    0.012 1947.768 2434.302 1.000
+# 10                          s  4.156 4.334    0.005   24.790 1420.255 1722.648 1.001
+# 3    beta_ILVi_hum_reactivity -0.769 0.709   -2.094    0.627 4478.786 3353.912 1.000
+# 4          beta_ILVi_agon_PCA  0.898 0.283    0.366    1.463 3353.685 2812.636 1.001
+# 5    beta_ILVi_n_vole_burrows -0.147 0.147   -0.473    0.104 2236.896 2066.314 1.001
+# 6  beta_ILVi_effective_effort  0.565 0.237    0.053    1.029 3599.745 2144.638 1.000
+# 7    beta_ILVs_n_vole_burrows  0.424 0.180    0.051    0.833 2474.720 2237.985 1.001
+# 8  beta_ILVs_effective_effort  0.075 0.467   -0.923    1.010 3918.830 2759.244 1.001
+# 12       beta_ILVi_age_sex[1]  0.040 0.609   -1.254    1.165 3052.269 2968.619 1.000
+# 15       beta_ILVs_age_sex[1] -0.436 0.681   -1.864    0.941 4203.330 2501.755 1.001
+# 13       beta_ILVi_age_sex[2]  0.333 0.598   -0.938    1.487 3574.763 2739.819 1.001
+# 16       beta_ILVs_age_sex[2]  0.424 0.758   -1.087    1.961 3279.388 2990.692 1.000
+# 14       beta_ILVi_age_sex[3] -0.039 0.710   -1.463    1.227 4462.475 2648.576 1.001
+# 17       beta_ILVs_age_sex[3] -0.273 0.797   -1.877    1.228 4329.560 3076.936 1.000
+# 11              percent_ST[1]  0.344 0.086    0.164    0.521 1412.652 1484.787 1.001
+
+
 
 # 4.5) create a table -------------------------------------------------------
 
 
-final_table <- output_weibull %>%
+final_table <- output_constant %>%
   
   # 1. Remove only log-scale parameters
   filter(!str_detect(Parameter, "^log_")) %>%
@@ -657,7 +801,6 @@ final_table <- output_weibull %>%
     parameter = case_when(
       parameter == "lambda_0" ~ "Baseline asocial learning rate",
       parameter == "s" ~ "Social transmission rate",
-      parameter == "gamma" ~ "Shape parameter",
       parameter == "percent_ST" ~ "Proportion social transmission",
       TRUE ~ parameter
     )
@@ -699,11 +842,10 @@ final_table <- final_table %>%
                        "beta_ILVi_hum_reactivity" = "Reactivity to humans",
                        "beta_ILVi_agon_PCA" = "Agonistic tendencies",
                        "beta_ILVi_n_vole_burrows" = "Vole burrow prevalence",
-                       "beta_ILVi_presence" = "Presence in study area",
+                       "beta_ILVi_effective_effort" = "Sampling opportunity",
                        
                        "beta_ILVs_n_vole_burrows" = "Vole burrow prevalence",
-                       "beta_ILVs_presence" = "Presence in study area",
-                       "beta_ILVi_age_sex[1]" = "Age/sex [adult male]",
+                       "beta_ILVs_effective_effort" = "Sampling opportunity",                       "beta_ILVi_age_sex[1]" = "Age/sex [adult male]",
                        "beta_ILVi_age_sex[2]" = "Age/sex [juvenile female]",
                        "beta_ILVi_age_sex[3]" = "Age/sex [juvenile male]",
                        "beta_ILVs_age_sex[1]" = "Age/sex [adult male]",
@@ -735,7 +877,7 @@ doc <- read_docx() %>%
   body_add_flextable(ft)
 
 # save
-print(doc, target = "Table/NBDA_results.docx")
+print(doc, target = "output/NBDA_results.docx")
 
 
 # 5) Figures --------------------------------------------------------------
@@ -749,7 +891,7 @@ print(doc, target = "Table/NBDA_results.docx")
 edge_list_plot <- edge_list[edge_list$assoc >= 0.03 & edge_list$focal != edge_list$other, ]
 
 # list of those with vole carnivory evidence
-learners <- event_data[event_data$time<39,"id"]
+learners <- event_data_new$id[event_data_new$time<57]
 
 
 g <- graph_from_data_frame(
@@ -798,31 +940,103 @@ igraph_plot <- as.ggplot(function() {
 })
 
 
+library(ggplot2)
+library(cowplot)
+
+# Create a custom legend
+legend_plot <- ggplot(data.frame(
+  x = c(1.0, 2.2),
+  y = c(1, 1),
+  label = c("vole-eaters", "non-vole eaters"),
+  colour = c("orange", "grey70")
+)) +
+  geom_point(aes(x = x, y = y, colour = colour), size = 4) +
+  geom_text(aes(x = x + 0.12, y = y, label = label),
+            hjust = 0, size = 4) +
+  scale_colour_identity() +
+  coord_cartesian(xlim = c(0.8, 3.5), ylim = c(0.8, 1.2),
+                  clip = "off") +
+  theme_void()
+
+# Combine network and legend
+soc.net <- plot_grid(
+  igraph_plot,
+  legend_plot,
+  ncol = 1,
+  rel_heights = c(1, 0.02)
+)
 
 # 5.2) Cumulative diffusion curve -------------------------------------------------------------------
 
 # we need to store num inds per trial to refer to later
-event_data_plot <- event_data %>%
+event_data_plot <- event_data_new %>%
   group_by(trial) %>%
   mutate(n_trial = n())
 
+# Keep individual acquisition events (no summarise!)
 plot_data_obs <- event_data_plot %>%
-  filter(time > 0, time <= t_end) %>% # exclude demonstrators (time == 0) and censored (time > t_end)
+  filter(time <= t_end) %>%
+  arrange(trial, time, id) %>%
   group_by(trial) %>%
-  arrange(time, .by_group = TRUE) %>%
   mutate(
-    cum_prop = row_number() / n_trial, # this denominator needs to be the number of individuals per trial
+    cum_prop = row_number() / first(n_trial),
     type = "observed"
   ) %>%
-  select(trial, time, cum_prop, type) %>%
-  ungroup()
+  ungroup() %>%
+  select(trial, time, cum_prop, type)
 
-# add in 0,0 starting point
+# Add starting and closing points
 plot_data_obs <- bind_rows(
   plot_data_obs,
+  
   plot_data_obs %>%
     distinct(trial) %>%
-    mutate(time = 0, cum_prop = 0, type = "observed")
+    mutate(time = 0, cum_prop = 0, type = "observed"),
+  
+  event_data_plot %>%
+    distinct(trial, t_end) %>%
+    left_join(
+      plot_data_obs %>%
+        group_by(trial) %>%
+        summarise(final_cum_prop = max(cum_prop), .groups = "drop"),
+      by = "trial"
+    ) %>%
+    transmute(
+      trial,
+      time = t_end,
+      cum_prop = final_cum_prop,
+      type = "observed"
+    )
+) %>%
+  arrange(trial, time, cum_prop)
+
+
+
+
+
+
+
+
+
+
+
+
+plot_data_obs <- bind_rows(
+  plot_data_obs,
+  # 0,0 starting point (your existing code)
+  plot_data_obs %>%
+    distinct(trial) %>%
+    mutate(time = 0, cum_prop = 0, type = "observed"),
+  # NEW: flat-line closing point at t_end
+  event_data_plot %>%
+    distinct(trial, t_end) %>%
+    left_join(
+      plot_data_obs %>%
+        group_by(trial) %>%
+        summarise(final_cum_prop = max(cum_prop), .groups = "drop"),
+      by = "trial"
+    ) %>%
+    transmute(trial, time = t_end, cum_prop = final_cum_prop, type = "observed")
 ) %>%
   arrange(trial, time)
 
@@ -890,7 +1104,7 @@ ggplot() +
             aes(x = time, y = cum_prop, 
                 group = interaction(draw, trial)), alpha = .1) +
   geom_line(data = plot_data_obs, aes(x = time, y = cum_prop), linewidth = 1) +
-  labs(x = "Time [days]", y = "Cumulative proportion\nof informed individuals", color = "Trial") +
+  labs(x = "Time steps [days]", y = "Cumulative proportion\nof informed individuals", color = "Trial") +
   theme_minimal()+
   ylim(c(0,1))
 
@@ -905,22 +1119,158 @@ diff_curve <- ggplot() +
   #           aes(x = time, y = cum_prop, 
   #               group = interaction(draw, trial)), alpha = .1) +
   geom_line(data = plot_data_obs, aes(x = time, y = cum_prop), linewidth = 1) +
-  labs(x = "Time [days]", y = "Cumulative proportion\nof informed individuals", color = "Trial") +
+  labs(x = "Time steps [days]", y = "Cumulative proportion\nof informed individuals", color = "Trial") +
   theme_minimal()+
   ylim(c(0,1))
 
 
+
+
+# 5.3) Aggression/age overall carnivory -----------------------------------
+
+
+library(ggpubr)
+library(ggplot2)
+
+
+p.age <- plot(conditional_effects(model_carnivory))
+
+
+tiff("Figures/Figure 3.tiff",
+     width = 8,
+     height = 4,
+     units = "in",
+     res = 600,
+     compression = "lzw")
+
+ggarrange(
+  p.age$age+
+    theme_bw()+
+    xlab("Age category")+
+    ylab("Carnivory probability") +
+    scale_x_discrete(labels = c("A" = "Adult", "P" = "Juvenile"))+
+    ylim(c(0,0.5))
+   # theme(
+      # Makes the text invisible but keeps its bounding box space
+   #   axis.text.y = element_text(color = "transparent") 
+   # )
+  ,
+  # emmeans-based age panel
+  p.age$agon_PCA +
+    theme_bw() +
+    xlab("Competitive ability [PC score]") +
+    ylab("")+
+    ylim(c(0,0.5))+
+    theme(
+  #  Makes the text invisible but keeps its bounding box space
+    axis.text.y = element_text(color = "transparent") 
+    )
+ ,
+  labels = c("c", "d")
+)
+
+dev.off()
+
+
+
+# 5.4) Individual trajectories --------------------------------------------
+
+
+
+evidence_df <- event_data_row %>%
+  mutate(
+    date = as.Date(date),
+    evidence = case_when(
+      opportunity_type == "obs" & vole_pos == 1                     ~ "obs_positive",
+      opportunity_type == "obs" & vole_pos == 0                     ~ "obs_negative",
+      opportunity_type == "trap_no_sample" & vole_pos == 1          ~ "trap_positive",
+      opportunity_type == "trap_no_sample" & vole_pos == 0          ~ "trap_negative",
+      opportunity_type == "trap_with_sample" & vole_pos == 1        ~ "fecal_positive",
+      opportunity_type == "trap_with_sample" & vole_pos == 0        ~ "fecal_negative",
+      TRUE ~ NA_character_
+    )
+  )
+
+id_order <- evidence_df %>%
+  group_by(id) %>%
+  summarise(first_evidence_date = min(date[first_vole_evidence], na.rm = TRUE)) %>%
+  mutate(first_evidence_date = if_else(is.infinite(first_evidence_date), as.Date(NA), first_evidence_date)) %>%
+  arrange(first_evidence_date) %>%   # earliest learners first
+  pull(id)
+
+# numeric label 1:59 following that same order (1 = earliest learner)
+id_lookup <- tibble(id = id_order, id_num = seq_along(id_order))
+
+evidence_df <- evidence_df %>%
+  left_join(id_lookup, by = "id") %>%
+  mutate(id_num = factor(id_num, levels = 1:length(id_order)))  # NOT reversed -> first learner (1) sits at bottom
+
+ind.plot <- ggplot(evidence_df, aes(x = date, y = id_num,
+                        shape = evidence,
+                        colour = first_vole_evidence)) +
+  geom_point(size = 1.8) +
+  scale_shape_manual(
+    values = c(
+      obs_negative   = 1,
+      obs_positive   = 16,
+      trap_negative  = 2,
+      trap_positive  = 17,
+      fecal_negative = 0,
+      fecal_positive = 15
+    ),
+    labels = c(
+      obs_negative   = "Observation (-)",
+      obs_positive   = "Observation (+)",
+      trap_negative  = "Trap day, no sample (-)",
+      trap_positive  = "Trap day, no sample (+)",
+      fecal_negative = "Fecal sample (-)",
+      fecal_positive = "Fecal sample (+)"
+    ),
+    name = NULL
+  ) +
+  scale_colour_manual(
+    values = c(
+      `FALSE` = "black",
+      `TRUE`  = "#e1a136"
+    ),
+    guide = "none"
+  ) +
+  labs(
+    x = "Date",
+    y = "Individual"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size = 6)
+  )
+
+
+# Arrange the three plots
+
+
 tiff("Figures/soc_net_Cumulative learning curve.tiff",
- width = 8,
- height = 4,
- units = "in",
- res = 600,
- compression = "lzw")
+     width = 7,
+     height = 7.5,
+     units = "in",
+     res = 600,
+     compression = "lzw")
 
 
 
 # ---- Combine with our ggplot ----
-combined_plot <- igraph_plot + diff_curve +
+library(patchwork)
+layout <- "
+AB
+CC
+"
+
+ind.plot <- ind.plot + theme(legend.position = "bottom")
+
+combined_plot <- soc.net + diff_curve + ind.plot +
+  plot_layout(design = layout,
+              widths  = c(1.1, 1),   # A wider than B
+              heights = c(1, 1.7)) + # row 2 (C) taller than row 1
   plot_annotation(tag_levels = "a")
 
 
@@ -932,54 +1282,37 @@ combined_plot
 dev.off()
 
 
+# how many opportunities were needed to become vole positive
+opportunity_to_first_evidence <- event_data_row %>%
+  mutate(date = as.Date(date)) %>%
+  arrange(id, date) %>%
+  group_by(id) %>%
+  mutate(opportunity_number = row_number()) %>%   # rank of this opportunity among all of this id's opportunities
+  filter(first_vole_evidence) %>%
+  summarise(opportunity_number = opportunity_number, .groups = "drop")
 
-# 5.3) Aggression/age overall carnivory -----------------------------------
+# how many individuals were positive on their very first opportunity
+n_first_opportunity <- opportunity_to_first_evidence %>%
+  filter(opportunity_number == 1) %>%
+  nrow()
 
+n_first_opportunity
+nrow(opportunity_to_first_evidence)   # total learners, should be 29, for context
 
-library(ggpubr)
-library(ggplot2)
+# average number of opportunities needed (mean, SD, range) across all learners
+summary_stats <- opportunity_to_first_evidence %>%
+  summarise(
+    mean_opportunities = mean(opportunity_number),
+    median_opportunities = median(opportunity_number),
+    
+        sd_opportunities    = sd(opportunity_number),
+    min_opportunities   = min(opportunity_number),
+    max_opportunities   = max(opportunity_number)
+  )
 
-# Data from emmeans
-age_dat <- data.frame(
-  age = c("A", "P"),
-  rate = c(0.095, 0.161),
-  lower = c(0.064, 0.109),
-  upper = c(0.131, 0.220)
-)
+summary_stats
 
-# Age panel
-p_age <- ggplot(age_dat, aes(x = age, y = rate)) +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.1) +
-  theme_bw() +
-  xlab("Age category") +
-  ylab("") +
-  scale_x_discrete(labels = c("A" = "Adult", "P" = "Juvenile"))
-
-
-p.carn <- plot(conditional_effects(model_carnivory))
-
-tiff("Figures/Figure 3.tiff",
-     width = 8,
-     height = 4,
-     units = "in",
-     res = 600,
-     compression = "lzw")
-
-ggarrange(
-  # emmeans-based age panel
-  p.carn$agon_PCA +
-    theme_bw() +
-    xlab("Competitive ability [PCA]") +
-    ylab("Carnivory rate"),
-  p_age,
-  labels = c("c", "d")
-)
-
-dev.off()
-
-
-
-
-
-
+# # A tibble: 1 × 5
+# mean_opportunities median_opportunities sd_opportunities min_opportunities max_opportunities
+# <dbl>                <int>            <dbl>             <int>             <int>
+#   1               7.62                    7             4.73                 2                17
