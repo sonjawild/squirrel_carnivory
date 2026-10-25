@@ -12,10 +12,19 @@ Code and data for analysing prevalence of carnivory on mammalian prey in Califor
 - trial: 1 for all (needed for NBDA)
 - spatial: spatial overlap in home ranges (not used for this analysis)
 
-### event.data.csv: contains information on when each individual was first seen hunting or consuming voles (observation and metagenomics)
+### rowwise_event.csv: contains information on each contact (observation, trapping day with or without sample) of each individual
 - id: identity of squirrel
-- time: time of first evidence of vole hunting or consumption (in days). 52 for right-censored individuals that never learned (end-time +1)
-- trial: again 1 for all
+- date: date of contact
+- vole_pos: whether we have evidence for vole consumption (1) or not (0) from observation
+- mammal_pos: whether there is metagenomic evidence for carnivory of any mammalian prey (1/0)
+- carnivory_pos: metagenomic and observational evidence combined - any evidence of prey hunting and or consumption (1/0)
+- sex: individual sex (F or M)
+- individual age: A for adult, P for juvenile
+- age_sex: age sex cateogry (combined)
+- hum_reactivity: behavioral type reactivity to humans in the trap
+- agon_PCA: PC1 score representing competitive ability (composite measure of win rate and initiation rate)
+- n_vole_burrows: number of vole burrows detected within 15m of landmarks that the squirrel used (weighed by relative space use), divided by 10
+
 
 ### genome_summary.csv: table with evidence of mammalian prey in fecal samples (each row is a sample)
 - age: A=adult, P=juvenile
@@ -28,12 +37,6 @@ Code and data for analysing prevalence of carnivory on mammalian prey in Califor
 - Reithrodontomys megalotis: >0 if evidence for presence of DNA
 - Mus musculus: >0 if evidence for presence of DNA
 - Peromyscus truei: >0 if evidence for presence of DNA
-
-### ILV_tv.csv: time-varying individual level variable (cumulative number of days present in study area + # fecal samples) - gets updated at every time step
-- trial: again 1 for everyone
-- id: identity of the squirrel
-- time: time step in days
-- presence: standardized presence within study (consisting of number of days observed on observation days + number of trapping days trapped up to each time step)
 
 ### ILVs: Individual-level variables for each individual (static)
 - id: identity of squirrel
