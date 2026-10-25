@@ -33,7 +33,7 @@ Code and data for analysing prevalence of carnivory on mammalian prey in Califor
 - trial: again 1 for everyone
 - id: identity of the squirrel
 - time: time step in days
-- presence: standardized presence within study (consisting of number of days observed on observation days + number of fecal samples collected up to each time step)
+- presence: standardized presence within study (consisting of number of days observed on observation days + number of trapping days trapped up to each time step)
 
 ### ILVs: Individual-level variables for each individual (static)
 - id: identity of squirrel
