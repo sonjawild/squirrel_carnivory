@@ -1,6 +1,9 @@
 # Competitive ability predicts the spread of novel carnivory in California ground squirrels
 Code and data for analysing prevalence of carnivory on mammalian prey in California ground squirrels and the spread of carnivory on voles through the population
 
+DOI: 10.5281/zenodo.24042509
+
+
 ## Folder: Raw data:
 - Combined behavioral and DNA data on vole consumption_4-20-26: contains detailed records of each individual with and without evidence of carnivory on mammal prey from 100 fecal samples analysed. Additionally, we have added records of behavioral observations of vole hunting or consumption observed by members of our study population. Together, these were used to construct input data for analyses (see below)
 
