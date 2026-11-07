@@ -1,4 +1,4 @@
-# Competitive ability predicts the spread of novel carnivory in California ground squirrels
+# Competitive ability and social transmission explain novel carnivory in California ground squirrels 
 Code and data for analysing prevalence of carnivory on mammalian prey in California ground squirrels and the spread of carnivory on voles through the population
 
 DOI: 10.5281/zenodo.24042509
